@@ -49,14 +49,14 @@ void process_graph(FILE *archivo)
     //IMPORTANTE: RECOLOCAMOS EL PUNTERO AL INICIO
     fseek(archivo,0,SEEK_SET);
     //Inicializamos todos los sucesores a 0
-    for(int i=0; i<6;++i){
+    for(int i=0; i<count;++i){
         for(int j=0; j<MAXPROC; ++j){
             tasks[i].next[j]=0;
         }
     }
  
 
-    for(int i=0; i<6;++i){
+    for(int i=0; i<count;++i){
 
         fscanf(archivo, "%[^\n] ", buffer); //Cogemos una linea del archivo
         //Hacemos un duplicado para no mdifica la linea original
@@ -90,7 +90,7 @@ void process_graph(FILE *archivo)
             }
         }
     }
-    print_graph(tasks,6);
+    print_graph(tasks,count);
     free(buffer);
     fclose(archivo);
 }
