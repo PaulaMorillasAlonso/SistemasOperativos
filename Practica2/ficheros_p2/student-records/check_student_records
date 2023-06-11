@@ -1,0 +1,178 @@
+#!/bin/bash
+
+function usage {
+	echo Usage: $0
+}
+
+function check_database {
+	hex_ref="040000001b00000036373635393033345800436872697300526f636b0022"
+	hex_ref+="00000037383637353930334a00416e746f6e696f0042616e646572617300"
+	hex_ref+="0300000035383934333035364a0053616e746961676f0053656775726100"
+	hex_ref+="0400000036333435323339470050656e656c6f7065004372757a00"
+
+	database_hex=$(echo $(xxd -p database) | tr -d '[:blank:]')
+
+	if [ "$hex_ref" != "$database_hex" ]; then
+		echo "error: database file format error"
+		xxd database > database_hex
+		echo $hex_ref | xxd -p -r | xxd > database_ref_hex
+		diff database_hex database_ref_hex
+		exit -1
+	fi
+}
+
+if [ $# -gt 0 ]; then
+	usage && exit -1
+fi
+
+make clean > /dev/null
+if ! make > /dev/null ; then
+	echo "error: compiling errors"
+	exit -1;
+fi
+
+if [ ! -x student-records ]; then
+	echo "error: executable student-records does not exist"
+	exit -1
+fi
+
+tee > records.txt <<EOF
+27:67659034X:Chris:Rock
+34:78675903J:Antonio:Banderas
+3:58943056J:Santiago:Segura
+4:6345239G:Penelope:Cruz
+EOF
+
+echo -n "checking create: "
+./student-records -f database -c $(cat records.txt) >> /dev/null
+check_database
+echo "ok"
+
+echo -n "checking append: "
+rm database
+opt="-c"
+for r in $(cat records.txt)
+do
+	./student-records -f database $opt $r >> /dev/null
+	opt="-a"
+done
+check_database
+echo "ok"
+
+echo -n "checking query with nif: "
+for r in $(cat records.txt)
+do
+	id=$(echo $r | cut -d':' -f 1)
+	nif=$(echo $r | cut -d':' -f 2)
+	first=$(echo $r | cut -d':' -f 3)
+	last=$(echo $r | cut -d':' -f 4)
+	if ! ./student-records -f database -q -n $nif >> /dev/null ; then
+		echo "error: nif $nif not in database"
+		exit -1
+	fi
+	stored_id=$(./student-records -f database -q -n $nif |
+		grep student_id | cut -d'=' -f 2)
+	stored_first=$(./student-records -f database -q -n $nif |
+		grep first_name | cut -d'=' -f 2)
+	stored_last=$(./student-records -f database -q -n $nif |
+		grep last_name | cut -d'=' -f 2)
+
+	if [ $id != $stored_id ]; then
+		echo "error: id does not match"
+		echo "stored id: $stored_id"
+		exit -1
+	fi
+
+	if [ $first != $stored_first ]; then
+		echo "error: first name does not match";
+		exit -1
+	fi
+
+	if [ $last != $stored_last ]; then
+		echo "error: last name does not match";
+		exit -1
+	fi
+done
+echo "ok"
+
+echo -n "checking query with id: "
+for r in $(cat records.txt)
+do
+	id=$(echo $r | cut -d':' -f 1)
+	nif=$(echo $r | cut -d':' -f 2)
+	first=$(echo $r | cut -d':' -f 3)
+	last=$(echo $r | cut -d':' -f 4)
+	if ! ./student-records -f database -q -i $id >> /dev/null ; then
+		echo "error: nif $nif not in database"
+		exit -1
+	fi
+	stored_nif=$(./student-records -f database -q -i $id |
+		grep NIF | cut -d'=' -f 2)
+	stored_first=$(./student-records -f database -q -i $id |
+		grep first_name | cut -d'=' -f 2)
+	stored_last=$(./student-records -f database -q -i $id |
+		grep last_name | cut -d'=' -f 2)
+
+	if [ $nif != $stored_nif ]; then
+		echo "error: nif does not match"
+		echo "stored nif: $stored_nif"
+		exit -1
+	fi
+
+	if [ $first != $stored_first ]; then
+		echo "error: first name does not match";
+		exit -1
+	fi
+
+	if [ $last != $stored_last ]; then
+		echo "error: last name does not match";
+		exit -1
+	fi
+done
+echo "ok"
+
+echo -n "checking list: "
+tee > expected_list.txt <<EOF
+[Entry#0]
+student_id=27
+NIF=67659034X
+first_name=Chris
+last_name=Rock
+[Entry#1]
+student_id=34
+NIF=78675903J
+first_name=Antonio
+last_name=Banderas
+[Entry#2]
+student_id=3
+NIF=58943056J
+first_name=Santiago
+last_name=Segura
+[Entry#3]
+student_id=4
+NIF=6345239G
+first_name=Penelope
+last_name=Cruz
+EOF
+
+./student-records -f database -l | tr -d '[:blank:]' > list.txt
+if ! diff list.txt expected_list.txt ; then
+	echo "error: list output differs from expected"
+	exit -1
+fi
+echo "ok"
+
+echo "Everything seems ok!"
+
+# clean intermediate files
+[ -f database_ref_hex ] && rm database_ref_hex
+[ -f database_hex ] && rm database_hex
+[ -f database ] && rm database
+[ -f records.txt ] && rm records.txt
+[ -f expected_list.txt ] && rm expected_list.txt
+[ -f list.txt ] && rm list.txt
+
+make clean > /dev/null
+exit 0
+
+
