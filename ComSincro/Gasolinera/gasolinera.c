@@ -3,155 +3,113 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define CAPACITY 2 //tamano mesa
-#define CLIENTS 3 
-#define AGENTES 1 
-#define TABACO 0
-#define PAPEL 1
-#define CERILLA 2
+#define CLIENTES 10 
+#define SURTIDORES 2 
 
 pthread_mutex_t mutex; /*mutex para buffer (discoteca) compartido*/
-pthread_cond_t full,empty; /*condicion*/
-
-int num_ingredientes = 0;
-int buffer[CAPACITY]={-1,-1};
+pthread_cond_t libre; /*condicion*/
+int ticket=0;
+int turno=0;
 typedef struct
 {
 	int id;
-	int miIngrediente;
+	int ocupado;
 
-}FumadorInfo;
+}SurtidorInfo;
 
-void *fumador(void *arg)
-{
-    FumadorInfo* miInfo=(FumadorInfo*)arg;
-    int miId=miInfo->id;
-    int miIngrediente=miInfo->miIngrediente;
+SurtidorInfo surtidoresInfo [SURTIDORES];
+void getUnusedPump(){
 
-    while(1){
-
-        pthread_mutex_lock(&mutex);
-        while (num_ingredientes!=2 || buffer[0]==miIngrediente || buffer[1]==miIngrediente)
-        {
-            pthread_cond_wait(&full,&mutex);
-        }
-        buffer[0]=-1;
-        buffer[1]=-1;
-        num_ingredientes=0;
-        fuma(miId,miIngrediente);
-        pthread_cond_broadcast(&empty);
-        pthread_mutex_unlock(&mutex);
+    int surtidorId;
+    pthread_mutex_lock(&mutex);
+    int miTicket=ticket;
+    ticket++;
+    while(miTicket!=turno || (surtidoresInfo[0].ocupado && surtidoresInfo[1].ocupado)){
+        pthread_cond_wait(&libre,&mutex);
     }
+
+    turno++;
+
+    if(!surtidoresInfo[0].ocupado){
+        surtidoresInfo[0].ocupado=1;
+        surtidorId=surtidoresInfo[0].id;
+    }
+    else if(!surtidoresInfo[1].ocupado){
+        surtidoresInfo[1].ocupado=1;
+        surtidorId=surtidoresInfo[1].id;
+    }
+
+    pthread_cond_broadcast(&libre);
+    pthread_mutex_unlock(&mutex);
+
+    PumpFuel(surtidorId,miTicket);
 	
 }
+void releasePump(int pumpId){
 
-void *agente()
-{
-    while(1){
-        pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&mutex);
+    printf("El cliente ha soltado el surtidor %u\n",pumpId);
 
-        while (num_ingredientes!=0 || buffer[0]!=-1 || buffer[1]!=-1)
-        {
-            pthread_cond_wait(&empty,&mutex);
-        }
-        
-        int random=rand()%CLIENTS;
-        int random1;
+    surtidoresInfo[pumpId].ocupado=0;
 
-        do{
-            random1=rand()%CLIENTS;
-            
-        }while(random1==random);
-        
-        buffer[0]=random;
-        buffer[1]=random1;
-    
-        coloca(random);
-        coloca(random1);
+    pthread_cond_broadcast(&libre);
+    pthread_mutex_unlock(&mutex);
 
-        num_ingredientes=2;
-        pthread_cond_broadcast(&full);
-        pthread_mutex_unlock(&mutex);
-    }
-	
 }
-void coloca(int ing)
+void *cliente()
+{
+    getUnusedPump();
+    /* Uso del surtidor */
+    //PumpFuel(pumpId,);
+    /* Deja de usar el surtidor */
+    releasePump(pumpId);
+}
+
+void PumpFuel(int idSurtidor,int ticketCliente)
 {
 
-    switch(ing){
+    switch(idSurtidor){
         case 0:{
-	        printf("Soy el agente he colocado tabaco \n");
+	        printf("El cliente con ticket %u, está usando el surtidor 0\n",ticketCliente);
             break;
         }
         case 1:{
-	        printf("Soy el agente he colocado papel \n");
-
-            break;
-        }
-        case 2:{
-	        printf("Soy el agente he colocado cerillas \n");
-
+	        printf("El cliente con ticket %u, está usando el surtidor 1\n",ticketCliente);
             break;
         }
     }
+    sleep((rand() % 3) + 1);
 
-}
-void fuma(int miId,int miIngrediente)
-{
-	printf("Fumador con ingrediente ", miId);
-
-    switch(miIngrediente){
-        case 0:{
-	        printf("tabaco ");
-            break;
-        }
-        case 1:{
-	        printf("papel ");
-
-            break;
-        }
-        case 2:{
-	        printf("cerillas ");
-
-            break;
-        }
-    }
-	printf("esta fumando\n");
-
-	sleep((rand() % 3) + 1);
 }
 
 int main(int argc, char *argv[])
 {
 
+
 	pthread_mutex_init(&mutex, NULL);
+	pthread_cond_init(&libre, NULL);
 
-	pthread_cond_init(&full, NULL);
-	pthread_cond_init(&empty, NULL);
+    for (int i = 0; i < SURTIDORES; i++)
+    {
+        surtidoresInfo[i].id=i;
+        surtidoresInfo[i].ocupado=0;
+    }
+    
 
-	pthread_t fumadoresArray[CLIENTS];
-	pthread_t agentesArray[AGENTES];
+	pthread_t clientesArray[CLIENTES];
 
-    int ingredientes[]={TABACO,PAPEL,CERILLA};
-
-	pthread_create(&agentesArray[0],NULL,agente,NULL);
-
-	for (int i = 0; i < CLIENTS; i++)
+	for (int i = 0; i < CLIENTES; i++)
 	{
-        FumadorInfo * miInfo=malloc(sizeof(FumadorInfo));
-        miInfo->id=i;
-        miInfo->miIngrediente=ingredientes[i];
-        
-		pthread_create(&fumadoresArray[i],NULL,fumador,miInfo);
-	}
-	
-    pthread_join(agentesArray[0], NULL);
-
-	for (int i = 0; i < CLIENTS; i++)
-	{
-		pthread_join(fumadoresArray[i], NULL);
+		pthread_create(&clientesArray[i],NULL,cliente,NULL);
 	}
 
+	for (int i = 0; i < CLIENTES; i++)
+	{
+		pthread_join(clientesArray[i], NULL);
+	}
+
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&libre);
 
 	return 0;
 }
